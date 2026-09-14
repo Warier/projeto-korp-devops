@@ -91,6 +91,7 @@
           register: project_copy
 
         - name: Copy the existing environment file
+          when: query('ansible.builtin.fileglob', project_source_dir ~ '/.env') | length > 0
           ansible.builtin.copy:
             src: "{{ project_source_dir }}/.env"
             dest: "{{ project_dir }}/.env"

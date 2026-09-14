@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,5 +53,24 @@ func TestProjetoKorp(t *testing.T) {
 				t.Fatalf("horario %s fora do intervalo da requisição [%s, %s]", horario, before, after)
 			}
 		})
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	router, err := httpapi.NewRouter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/projeto-korp", nil))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `korp_http_requests_total{method="GET",route="/projeto-korp",status="200"} 1`) {
+		t.Fatal("expected the API response counter in /metrics")
+	}
+	if strings.Contains(response.Body.String(), `route="/metrics"`) {
+		t.Fatal("scrape requests must not be counted")
 	}
 }

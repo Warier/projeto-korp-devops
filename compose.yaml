@@ -50,6 +50,21 @@ services:
       start_period: 5s
     networks:
       - korp
+      - observabilidade
+
+  nginx-exporter:
+    image: quay.io/martinhelmich/prometheus-nginxlog-exporter:v1.11.0
+    restart: unless-stopped
+    network_mode: service:nginx
+    user: "65532:65532"
+    command: ["-config-file", "/etc/nginx-exporter/config.hcl"]
+    volumes:
+      - ./infra/nginx-exporter/config.hcl:/etc/nginx-exporter/config.hcl:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   prometheus:
     image: prom/prometheus:v3.14.0
@@ -86,7 +101,8 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_PLUGINS_PREINSTALL_DISABLED: "true"

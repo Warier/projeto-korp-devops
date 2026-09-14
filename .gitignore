@@ -2,3 +2,4 @@
 /http-server-projeto-korp
 /.env
 /ansible/inventories/server.yml
+/coverage.out
