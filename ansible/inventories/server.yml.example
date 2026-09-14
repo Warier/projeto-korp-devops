@@ -1,0 +1,12 @@
+all:
+  children:
+    korp:
+      hosts:
+        korp-server:
+          ansible_host: 192.0.2.10
+          ansible_user: ubuntu
+          ansible_ssh_private_key_file:
+          ansible_python_interpreter: /usr/bin/python3
+          ansible_become: true
+          install_docker: true
+          deployment_path: /opt/projeto-korp

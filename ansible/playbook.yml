@@ -1,0 +1,131 @@
+- name: Provision Projeto Korp
+  hosts: korp
+  become: true
+  gather_facts: true
+
+  vars:
+    project_source_dir: "{{ playbook_dir | dirname }}"
+    project_dir: "{{ deployment_path | default('/opt/projeto-korp') }}"
+
+  tasks:
+    - name: Install Docker on Ubuntu
+      when: install_docker | default(true) | bool
+      block:
+        - name: Require Ubuntu with systemd for Docker installation
+          ansible.builtin.assert:
+            that:
+              - ansible_facts['distribution'] == 'Ubuntu'
+              - ansible_facts['service_mgr'] == 'systemd'
+
+        - name: Install APT prerequisites
+          ansible.builtin.apt:
+            name: [ca-certificates, python3-apt]
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Read the package architecture
+          ansible.builtin.command: dpkg --print-architecture
+          register: docker_architecture
+          changed_when: false
+
+        - name: Create the repository key directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: "0755"
+
+        - name: Download the official Docker repository key
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            dest: /etc/apt/keyrings/docker.asc
+            mode: "0644"
+
+        - name: Add the official Docker repository
+          ansible.builtin.apt_repository:
+            repo: "deb [arch={{ docker_architecture.stdout }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
+            filename: docker
+            state: present
+
+        - name: Install Docker Engine and Compose
+          ansible.builtin.apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+            state: present
+            fail_on_autoremove: true
+
+        - name: Enable and start Docker
+          ansible.builtin.service:
+            name: docker
+            state: started
+            enabled: true
+
+    - name: Copy the project when deploying outside the local checkout
+      when: ansible_connection | default('ssh') != 'local' or project_dir != project_source_dir
+      block:
+        - name: Create the deployment directory
+          ansible.builtin.file:
+            path: "{{ project_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Copy build inputs and service configuration
+          ansible.builtin.copy:
+            src: "{{ project_source_dir }}/{{ item }}"
+            dest: "{{ project_dir }}/"
+            mode: preserve
+            directory_mode: "0755"
+          loop:
+            - Dockerfile
+            - .dockerignore
+            - go.mod
+            - go.sum
+            - cmd
+            - internal
+            - compose.yaml
+            - infra
+          register: project_copy
+
+        - name: Copy the existing environment file
+          ansible.builtin.copy:
+            src: "{{ project_source_dir }}/.env"
+            dest: "{{ project_dir }}/.env"
+            mode: "0600"
+          no_log: true
+          diff: false
+
+    - name: Build the API and start the complete Compose environment
+      community.docker.docker_compose_v2:
+        project_src: "{{ project_dir }}"
+        state: present
+        build: always
+        recreate: "{{ 'always' if project_copy.changed | default(false) else 'auto' }}"
+        pull: missing
+        wait: true
+        wait_timeout: 300
+
+    - name: Request the API through NGINX
+      ansible.builtin.uri:
+        url: http://127.0.0.1:80/projeto-korp
+        status_code: 200
+        return_content: true
+        use_proxy: false
+        timeout: 5
+      register: api_response
+      until: api_response.status | default(0) == 200
+      retries: 6
+      delay: 2
+
+    - name: Check the expected response
+      ansible.builtin.assert:
+        that:
+          - api_response.json.nome == 'Projeto Korp'
+          - api_response.json.horario is match('^\d{4}-\d{2}-\d{2}T.*Z$')
+
+    - name: Display the API response
+      ansible.builtin.debug:
+        var: api_response.json
